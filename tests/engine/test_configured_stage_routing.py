@@ -29,6 +29,7 @@ from tests.engine.test_orchestrator import (
     orchestrator_factory,
 )
 from tests.engine.test_orchestrator_stage_input_bridge import FakeInputProcessor
+from tests.watermarking.test_base import NoopWatermarker
 from vllm_omni.config.stage_config import PipelineConfig, StagePipelineConfig
 from vllm_omni.config.stage_routing import StageRouting
 from vllm_omni.engine import OmniEngineCoreOutput
@@ -768,15 +769,21 @@ async def test_failed_abort_waits_for_each_remaining_stage(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_abort_failure_on_one_replica_does_not_skip_other_replicas(monkeypatch):
+@pytest.mark.parametrize("watermarking", [False, True])
+async def test_abort_failure_on_one_replica_does_not_skip_other_replicas(monkeypatch, watermarking):
     orch, state, clients = _direct_orchestrator()
     pool = orch.stage_pools[2]
     pool._output_processor = MultimodalOutputProcessor(tokenizer=None, log_stats=False)
+    watermarker = NoopWatermarker()
+    if watermarking:
+        pool._watermarkers = {"audio": watermarker}
     pool.add_client("other", FakeStageClient(final_output=True), replica_id=1)
     for replica_id, request_id in enumerate(("r", "other")):
         request = _processed_request(request_id, state.sampling_params_list[2])
         request.external_req_id = request_id
         await pool.submit_initial(request_id, state, request, pinned_replica_id=replica_id)
+        if watermarking:
+            watermarker.watermark(request_id, True)
 
     async def fail_abort(request_ids):
         raise RuntimeError("abort failed")
@@ -788,6 +795,10 @@ async def test_abort_failure_on_one_replica_does_not_skip_other_replicas(monkeyp
     assert pool.get_bound_replica_id("other") is None
     assert set(pool.output_processor.request_states) == {"r"}
     assert pool.clients[1].abort_calls == [["other"]]
+    if watermarking:
+        assert not watermarker.created[0].closed
+        assert watermarker.created[1].closed
+    watermarker.close()
 
 
 @pytest.mark.asyncio

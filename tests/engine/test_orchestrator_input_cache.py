@@ -9,9 +9,11 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from vllm.config.multimodal import MultiModalConfig
 from vllm.exceptions import VLLMValidationError
 from vllm.multimodal.cache import LruKeyReplicatedReceiverCache, LruKeyReplicatedSenderCache
 from vllm.multimodal.cache.shm import ShmObjectStoreReceiverCache, ShmObjectStoreSenderCache
+from vllm.multimodal.processing import InputProcessingContext
 from vllm.utils.cache import LRUCache
 
 from vllm_omni.engine.duplex.contracts import DuplexFence, DuplexStageRequestContext, DuplexStageSubmission
@@ -95,7 +97,9 @@ def cache_pipeline():
                 final_stage_id=1,
             )
             orch.request_states[request_id] = state
-            await orch._forward_to_next_stage_unguarded(request_id, 0, _build_request_output(request_id), state)
+            await orch._forward_to_next_stage_unguarded(
+                request_id, 0, _build_request_output(request_id), state, next_logical=state.final_stage_id
+            )
 
     yield SimpleNamespace(
         orch=orch,
@@ -346,8 +350,16 @@ async def test_malformed_video_options_fail_only_the_request(cache_pipeline, mon
     processor = p.orch._stage_input_processors[1]
     renderer = processor.renderer
     renderer.model_config = SimpleNamespace(hf_config=SimpleNamespace(model_type="qwen3_vl"))
+    ctx = InputProcessingContext(SimpleNamespace(get_multimodal_config=lambda: MultiModalConfig()), tokenizer=None)
     renderer.get_mm_processor = mocker.Mock(
-        return_value=SimpleNamespace(info=SimpleNamespace(ctx=SimpleNamespace(get_merged_mm_kwargs=lambda kw, **_: kw)))
+        return_value=mocker.Mock(
+            info=SimpleNamespace(
+                ctx=ctx,
+                _merge_and_resolve_mm_processor_kwargs=lambda kw: ctx.get_merged_mm_kwargs(
+                    kw, supported_mm_processor_kwargs={"videos_kwargs": {"size", "fps", "num_frames"}}
+                ),
+            )
+        )
     )
     original = processor.process_inputs
 
