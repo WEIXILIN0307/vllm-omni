@@ -2933,6 +2933,7 @@ class OrchestratorBase:
             payload_sender_info = self._build_payload_sender_info(src_stage_id, request_id=req_id, req_state=req_state)
             if payload_sender_info is not None:
                 submit_kwargs["payload_sender_info"] = payload_sender_info
+            req_state.stage_submit_ts[next_logical] = _time.time()
             if already_submitted:
                 replica_id = await next_pool.submit_update(
                     req_id,
@@ -2956,7 +2957,6 @@ class OrchestratorBase:
                 replica_id,
                 req_state,
             )
-            req_state.stage_submit_ts[next_logical] = _time.time()
             _tx_ms = (_time.perf_counter() - _t_submit_start) * 1000.0
             self._emit_tx_edge(
                 from_stage=src_stage_id,
@@ -2999,6 +2999,7 @@ class OrchestratorBase:
                     resumable=next_stage_resumable,
                 )
                 request.external_req_id = request.request_id
+                req_state.stage_submit_ts[next_logical] = _time.time()
                 if already_submitted:
                     replica_id = await next_pool.submit_update(req_id, req_state, request, **route_kwargs)
                 else:
@@ -3012,7 +3013,6 @@ class OrchestratorBase:
                     req_state,
                 )
 
-            req_state.stage_submit_ts[next_logical] = _time.time()
             _tx_ms = (_time.perf_counter() - _t_submit_start) * 1000.0
             self._emit_tx_edge(
                 from_stage=src_stage_id,
@@ -3162,6 +3162,7 @@ class OrchestratorBase:
 
                 if mark_submitting is not None:
                     mark_submitting()
+                req_state.stage_submit_ts[next_logical] = _time.time()
                 if already_submitted:
                     replica_id = await next_pool.submit_update(req_id, req_state, request, **route_kwargs)
                 else:
@@ -3180,7 +3181,6 @@ class OrchestratorBase:
                 req_state,
             )
 
-        req_state.stage_submit_ts[next_logical] = _time.time()
         _tx_ms = (_time.perf_counter() - _t_submit_start) * 1000.0
         self._emit_tx_edge(
             from_stage=src_stage_id,
